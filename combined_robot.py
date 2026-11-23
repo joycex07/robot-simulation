@@ -14,6 +14,18 @@ gripper = mujoco.MjSpec.from_file(
     "mujoco_menagerie/robotiq_2f85/2f85.xml"
 )
 
+with h5py.File("trajectory.h5", "r") as f:
+    joint_positions = f["observation/robot_state/joint_positions"][:]
+
+with h5py.File("trajectory.h5", "r") as f:
+    timestamps = f["observation/timestamp/robot_state/read_start"][:]
+
+total_time = timestamps[-1] - timestamps[0]
+total_time /= 1000
+
+delta_t = delta_t = np.diff(timestamps) / 1000
+
+
 # Find the attachment site on the FR3
 attachment_site = fr3.site("attachment_site")
 
@@ -40,7 +52,10 @@ for i in range(model.nu):
 data = mujoco.MjData(model)
 
 # Set the gripper actuator command
-data.ctrl[7] = 255
+data.ctrl[7] = 255 #close gripper
+
+start_positions = joint_positions[0].copy()
+target_position = joint_positions[-1].copy()
 
 
 
@@ -53,26 +68,13 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     viewer.cam.azimuth = 135
     viewer.cam.elevation = -20
 
+    start_time = time.perf_counter()
+
     while viewer.is_running():
-
-        # Open the gripper
-        data.ctrl[7] = 0
-
-        for _ in range(500):
-            if not viewer.is_running():
-                break
-
-            mujoco.mj_step(model, data)
+        for i in range(len(joint_positions)):
+            data.qpos[:7] = joint_positions[i]
+            mujoco.mj_forward(model, data)
             viewer.sync()
-            time.sleep(model.opt.timestep)
 
-        # Close the gripper
-        data.ctrl[7] = 255
-
-        for _ in range(500):
-            if not viewer.is_running():
-                break
-
-            mujoco.mj_step(model, data)
-            viewer.sync()
-            time.sleep(model.opt.timestep)
+            if i < len(delta_t):
+                time.sleep(delta_t[i])
